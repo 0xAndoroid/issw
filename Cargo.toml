@@ -11,8 +11,8 @@ categories = ["command-line-utilities", "os::macos-apis"]
 
 [dependencies]
 
-[workspace.lints.rust]
-unsafe_code = "forbid"
+[lints]
+workspace = true
 
 [workspace.lints.clippy]
 # Pedantic baseline; priority -1 lets individual lints override.

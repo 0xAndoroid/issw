@@ -3,6 +3,7 @@ compile_error!("issw only supports macOS.");
 
 use std::env;
 use std::ffi::{c_char, c_void, CStr, OsString};
+use std::io::{self, Write as _};
 use std::process::ExitCode;
 use std::ptr::NonNull;
 
@@ -58,7 +59,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("issw: {error}");
+            let _ = writeln!(io::stderr().lock(), "issw: {error}");
             ExitCode::FAILURE
         }
     }
@@ -67,21 +68,22 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Error> {
     match Command::parse(env::args_os().skip(1))? {
         Command::Help => {
-            print_usage();
+            print_usage()?;
             Ok(())
         }
         Command::List => {
             let list = SourceList::load()?;
+            let mut stdout = io::stdout().lock();
 
             for source in list.sources() {
-                println!("{}\t{}", source.info.id, source.info.name);
+                writeln!(stdout, "{}\t{}", source.info.id, source.info.name)?;
             }
 
             Ok(())
         }
         Command::Current => {
             let source = current_source()?;
-            println!("{}\t{}", source.id, source.name);
+            writeln!(io::stdout().lock(), "{}\t{}", source.id, source.name)?;
             Ok(())
         }
         Command::Switch(query) => switch_source(&query),
@@ -167,7 +169,7 @@ impl SourceList {
                 continue;
             };
 
-            let source_ref = raw.as_ptr() as TISInputSourceRef;
+            let source_ref = raw.as_ptr().cast_const();
             if !is_selectable_keyboard_source(source_ref) {
                 continue;
             }
@@ -216,7 +218,7 @@ fn current_source() -> Result<SourceInfo, Error> {
 fn switch_source(query: &str) -> Result<(), Error> {
     let list = SourceList::load()?;
     let source = find_source(list.sources(), query)?;
-    let status = unsafe { TISSelectInputSource(source.raw.as_ptr() as TISInputSourceRef) };
+    let status = unsafe { TISSelectInputSource(source.raw.as_ptr().cast_const()) };
 
     if status == 0 {
         Ok(())
@@ -257,7 +259,7 @@ fn input_source_from_ref(raw: NonNull<c_void>) -> Option<InputSource> {
 }
 
 fn input_source_info(raw: NonNull<c_void>) -> Option<SourceInfo> {
-    let source = raw.as_ptr() as TISInputSourceRef;
+    let source = raw.as_ptr().cast_const();
     let id = string_property(source, unsafe { kTISPropertyInputSourceID })?;
     let name = string_property(source, unsafe { kTISPropertyLocalizedName })?;
 
@@ -339,7 +341,7 @@ impl OwnedCf {
     }
 
     fn as_array(&self) -> CFArrayRef {
-        self.ptr.as_ptr() as CFArrayRef
+        self.ptr.as_ptr().cast_const()
     }
 
     fn non_null(&self) -> NonNull<c_void> {
@@ -350,7 +352,7 @@ impl OwnedCf {
 impl Drop for OwnedCf {
     fn drop(&mut self) {
         unsafe {
-            CFRelease(self.ptr.as_ptr() as CFTypeRef);
+            CFRelease(self.ptr.as_ptr().cast_const());
         }
     }
 }
@@ -364,6 +366,7 @@ enum Error {
     NullResult(&'static str),
     OsStatus(&'static str, OSStatus),
     System(&'static str),
+    Io(io::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -382,15 +385,23 @@ impl std::fmt::Display for Error {
             Self::NullResult(operation) => write!(formatter, "{operation} returned null"),
             Self::OsStatus(operation, status) => write!(formatter, "{operation} failed: {status}"),
             Self::System(message) => formatter.write_str(message),
+            Self::Io(error) => error.fmt(formatter),
         }
     }
 }
 
-fn print_usage() {
-    eprintln!("usage:");
-    eprintln!("  issw list");
-    eprintln!("  issw current");
-    eprintln!("  issw <id-or-name>");
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+fn print_usage() -> io::Result<()> {
+    let mut stderr = io::stderr().lock();
+    writeln!(stderr, "usage:")?;
+    writeln!(stderr, "  issw list")?;
+    writeln!(stderr, "  issw current")?;
+    writeln!(stderr, "  issw <id-or-name>")
 }
 
 #[cfg(test)]
@@ -398,16 +409,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_empty_args_as_help() {
-        assert_eq!(Command::parse(args(&[])).unwrap(), Command::Help);
+    fn parses_empty_args_as_help() -> Result<(), Error> {
+        assert_eq!(Command::parse(args(&[]))?, Command::Help);
+        Ok(())
     }
 
     #[test]
-    fn parses_multi_word_switch_query() {
+    fn parses_multi_word_switch_query() -> Result<(), Error> {
         assert_eq!(
-            Command::parse(args(&["ABC", "-", "Extended"])).unwrap(),
+            Command::parse(args(&["ABC", "-", "Extended"]))?,
             Command::Switch("ABC - Extended".to_owned())
         );
+        Ok(())
     }
 
     #[test]
@@ -419,30 +432,32 @@ mod tests {
     }
 
     #[test]
-    fn exact_match_wins_before_substring_matching() {
+    fn exact_match_wins_before_substring_matching() -> Result<(), Error> {
         let sources = [
             source("abc", "ABC"),
             source("abc-extended", "ABC - Extended"),
         ];
 
-        let matched = find_source(&sources, "ABC").unwrap();
+        let matched = find_source(&sources, "ABC")?;
 
         assert_eq!(matched.info.id, "abc");
+        Ok(())
     }
 
     #[test]
-    fn substring_matching_requires_unique_match() {
+    fn substring_matching_requires_unique_match() -> Result<(), Error> {
         let sources = [
             source("us", "U.S."),
             source("us-international", "U.S. International"),
         ];
 
-        let matched = find_source(&sources, "U.S.").unwrap();
+        let matched = find_source(&sources, "U.S.")?;
         assert_eq!(matched.info.id, "us");
         assert!(matches!(
             find_source(&sources, "u.s"),
             Err(Error::AmbiguousMatch)
         ));
+        Ok(())
     }
 
     fn args(values: &[&str]) -> impl Iterator<Item = OsString> {
