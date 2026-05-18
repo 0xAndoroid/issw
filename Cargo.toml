@@ -10,3 +10,70 @@ keywords = ["cli", "keyboard", "macos", "input-source"]
 categories = ["command-line-utilities", "os::macos-apis"]
 
 [dependencies]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Pedantic baseline; priority -1 lets individual lints override.
+pedantic = { level = "warn", priority = -1 }
+
+# Pedantic overrides — too noisy or don't fit this codebase.
+case_sensitive_file_extension_comparisons = "allow"
+default_trait_access = "allow"
+doc_markdown = "allow"
+fn_params_excessive_bools = "allow"
+format_push_string = "allow"
+implicit_hasher = "allow"
+items_after_statements = "allow"
+manual_let_else = "allow"
+match_same_arms = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+needless_pass_by_value = "allow"
+no_effect_underscore_binding = "allow"
+redundant_closure_for_method_calls = "allow"
+ref_option = "allow"
+ref_option_ref = "allow"
+return_self_not_must_use = "allow"
+similar_names = "allow"
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+trivially_copy_pass_by_ref = "allow"
+uninlined_format_args = "allow"
+unnecessary_wraps = "allow"
+unused_async = "allow"
+used_underscore_binding = "allow"
+
+# Cast lints — many false positives where range is known.
+# Note: cast_lossless is NOT allowed — prefer From::from() for clarity.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+
+# Panic safety — deny anything that could panic.
+expect_used = "deny"
+panic = "deny"
+unwrap_used = "deny"
+
+# Prohibit all allow attributes — use #[expect(...)] instead.
+allow_attributes = "deny"
+
+# Error types need rich context for good UX.
+result_large_err = "allow"
+
+# No debug macros, incomplete code, or stdout/stderr in library code.
+# CLI crates override print_stdout/print_stderr via crate-level lint config.
+dbg_macro = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+# Project-specific exceptions.
+enum_variant_names = "allow"
+large_futures = "allow"
+significant_drop_tightening = "allow"
