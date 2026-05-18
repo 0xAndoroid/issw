@@ -5,13 +5,13 @@ Tiny macOS CLI for switching keyboard input sources.
 ## Install
 
 ```sh
-cargo install --git https://github.com/0xAndoroid/issw
+cargo install issw
 ```
 
-After the crates.io release:
+From GitHub:
 
 ```sh
-cargo install issw
+cargo install --git https://github.com/0xAndoroid/issw
 ```
 
 ## Usage
