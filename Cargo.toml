@@ -1,0 +1,12 @@
+[package]
+name = "issw"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Tiny macOS CLI for switching keyboard input sources."
+repository = "https://github.com/0xAndoroid/issw"
+readme = "README.md"
+keywords = ["cli", "keyboard", "macos", "input-source"]
+categories = ["command-line-utilities", "os::macos-apis"]
+
+[dependencies]

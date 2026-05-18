@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@nextest
+      - run: cargo fmt -q --message-format=short --check
+      - run: cargo clippy -q --message-format=short -- -D warnings
+      - run: cargo nextest run --cargo-quiet
+      - run: cargo package --locked
