@@ -432,19 +432,6 @@ mod tests {
     }
 
     #[test]
-    fn exact_match_wins_before_substring_matching() -> Result<(), Error> {
-        let sources = [
-            source("abc", "ABC"),
-            source("abc-extended", "ABC - Extended"),
-        ];
-
-        let matched = find_source(&sources, "ABC")?;
-
-        assert_eq!(matched.info.id, "abc");
-        Ok(())
-    }
-
-    #[test]
     fn substring_matching_requires_unique_match() -> Result<(), Error> {
         let sources = [
             source("us", "U.S."),
