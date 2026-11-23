@@ -18,7 +18,6 @@ workspace = true
 # Pedantic baseline; priority -1 lets individual lints override.
 pedantic = { level = "warn", priority = -1 }
 
-# Pedantic overrides — too noisy or don't fit this codebase.
 case_sensitive_file_extension_comparisons = "allow"
 default_trait_access = "allow"
 doc_markdown = "allow"
@@ -54,7 +53,6 @@ cast_possible_wrap = "allow"
 cast_precision_loss = "allow"
 cast_sign_loss = "allow"
 
-# Panic safety — deny anything that could panic.
 expect_used = "deny"
 panic = "deny"
 unwrap_used = "deny"
@@ -65,15 +63,12 @@ allow_attributes = "deny"
 # Error types need rich context for good UX.
 result_large_err = "allow"
 
-# No debug macros, incomplete code, or stdout/stderr in library code.
-# CLI crates override print_stdout/print_stderr via crate-level lint config.
 dbg_macro = "deny"
 print_stderr = "deny"
 print_stdout = "deny"
 todo = "deny"
 unimplemented = "deny"
 
-# Project-specific exceptions.
 enum_variant_names = "allow"
 large_futures = "allow"
 significant_drop_tightening = "allow"
