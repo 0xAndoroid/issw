@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - LICENSE
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -18,6 +15,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt -q --message-format=short --check
       - run: cargo clippy -q --message-format=short -- -D warnings
@@ -26,10 +25,19 @@ jobs:
       - run: cargo nextest run --cargo-quiet --no-tests=fail
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       - run: cargo package --locked
+      - name: Check for changes outside documentation
+        id: product-changes
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          changed=$(git diff --name-only --no-renames HEAD^1 HEAD -- . ':(exclude,glob)**/*.md' ':(exclude,top,literal)LICENSE')
+          if [[ -n "$changed" ]]; then
+            echo 'run-smoke=true' >> "$GITHUB_OUTPUT"
+          fi
       - run: cargo build -q --message-format=short --locked
-        if: github.event_name == 'pull_request'
+        if: steps.product-changes.outputs.run-smoke == 'true'
       - name: Switch input sources with issw
-        if: github.event_name == 'pull_request'
+        if: steps.product-changes.outputs.run-smoke == 'true'
         shell: bash
         run: |
           original=$(target/debug/issw current)
@@ -51,7 +59,9 @@ jobs:
           target=$(target/debug/issw list | awk -F '\t' -v id="$target_id" '$1 == id && length($2)')
           test -n "$target"
           target/debug/issw "$target_id"
-          test "$(target/debug/issw current)" = "$target"
+          selected=$(target/debug/issw current)
+          test "$selected" = "$target"
           target/debug/issw "$original_id"
-          test "$(target/debug/issw current)" = "$original"
+          restored=$(target/debug/issw current)
+          test "$restored" = "$original"
           printf 'Switched to %s and restored %s\n' "$target_id" "$original_id"
