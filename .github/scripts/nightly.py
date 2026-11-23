@@ -6,7 +6,8 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 BRANCH = "main"
-SUITE_STEP = "Run cargo nextest run --cargo-quiet --no-tests=fail"
+LEGACY_SUITE_STEP = "Run cargo nextest run --cargo-quiet --no-tests=fail"
+SUITE_RECEIPT_STEP = "Nightly suite completed"
 SKIP_STEP = "Nightly SHA already covered"
 
 
@@ -38,8 +39,11 @@ def completed_nightly(run, actions, before):
             if step["status"] == "completed"
         }
         suite_finished = (
-            job["name"] in {"Rust", "Nightly Rust"}
-            and completed_steps.get(SUITE_STEP) in {"success", "failure"}
+            job["name"] == "Nightly Rust"
+            and completed_steps.get(SUITE_RECEIPT_STEP) == "success"
+        ) or (
+            job["name"] == "Rust"
+            and completed_steps.get(LEGACY_SUITE_STEP) == "success"
         )
         skip_confirmed = (
             job["name"] == "Nightly preflight"
@@ -94,7 +98,6 @@ def main():
         f"{actions}/workflows/{workflow_id}/runs",
         branch=BRANCH,
         event="schedule",
-        status="completed",
         created=f"<={current['created_at']}",
         per_page=100,
     )["workflow_runs"]
@@ -109,7 +112,6 @@ def main():
             or run["workflow_id"] != workflow_id
             or run["event"] != "schedule"
             or run["head_branch"] != BRANCH
-            or run["status"] != "completed"
         ):
             continue
         if not re.fullmatch(r"[0-9a-f]{40}", run["head_sha"]):
