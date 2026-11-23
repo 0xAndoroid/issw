@@ -16,20 +16,36 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: read
-      contents: read
     outputs:
-      run-suite: ${{ steps.select.outputs.run-suite }}
+      skip-nightly: ${{ steps.select.outputs.skip-nightly }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - id: select
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/nightly.py
-      - name: Nightly SHA already covered
-        if: steps.select.outputs.run-suite == 'false'
-        run: echo 'The same commit has already completed a nightly suite.'
+        shell: bash
+        run: |
+          actions="repos/$GITHUB_REPOSITORY/actions"
+          if current=$(timeout 20s gh api "$actions/runs/$GITHUB_RUN_ID" --jq '[.workflow_id, .created_at] | @tsv') &&
+             read -r workflow started <<< "$current" &&
+             [[ $workflow =~ ^[1-9][0-9]*$ && -n $started ]] &&
+             history=$(timeout 20s gh api --method GET "$actions/workflows/$workflow/runs" \
+               -f branch=main -f event=schedule -f status=completed -f created="<$started" -F per_page=30) &&
+             previous=$(jq -er --argjson id "$GITHUB_RUN_ID" --argjson number "$GITHUB_RUN_NUMBER" \
+               --argjson workflow "$workflow" --arg started "$started" '
+               ($started | fromdateiso8601) as $start
+               | [.workflow_runs[] | select(
+                   (.id | numbers) != $id and (.run_number | numbers) < $number
+                   and .workflow_id == $workflow and .head_branch == "main"
+                   and .event == "schedule" and .status == "completed"
+                   and (.conclusion == "success" or .conclusion == "failure")
+                   and (.updated_at | fromdateiso8601) < $start
+                 )] | max_by(.run_number).head_sha // empty' <<< "$history") &&
+             [[ $previous =~ ^[0-9a-f]{40}$ && $previous == "$GITHUB_SHA" ]]; then
+            echo 'skip-nightly=true' >> "$GITHUB_OUTPUT"
+            echo 'The last completed nightly used the same commit.'
+          else
+            echo 'No confirmed same-commit nightly; run the full suite.'
+          fi
 
   rust:
     name: Rust
@@ -45,21 +61,8 @@ jobs:
       - run: cargo clippy -q --message-format=short -- -D warnings
       - uses: taiki-e/install-action@nextest
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-      - name: Run the full Rust suite
-        id: suite
+      - run: cargo nextest run --cargo-quiet --no-tests=fail
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          status=0
-          cargo nextest run --cargo-quiet --no-tests=fail || status=$?
-          # Nextest exit 100 reports failed tests, not a build or discovery error.
-          if [[ "$status" == 0 || "$status" == 100 ]]; then
-            echo 'completed=true' >> "$GITHUB_OUTPUT"
-          fi
-          exit "$status"
-      - name: Nightly suite completed
-        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.suite.outputs.completed == 'true' }}
-        run: echo 'Nextest completed with a test result.'
       - run: cargo package --locked
       - name: Check for changes outside documentation
         id: product-changes
@@ -105,6 +108,6 @@ jobs:
   nightly:
     name: Nightly Rust
     needs: nightly-preflight
-    if: needs.nightly-preflight.outputs.run-suite == 'true'
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.nightly-preflight.outputs.skip-nightly != 'true' }}
     runs-on: macos-latest
     steps: *rust-steps
