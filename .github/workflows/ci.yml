@@ -9,11 +9,50 @@ on:
   workflow_dispatch:
 
 jobs:
+  nightly-preflight:
+    name: Nightly preflight
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      skip-nightly: ${{ steps.select.outputs.skip-nightly }}
+    steps:
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          actions="repos/$GITHUB_REPOSITORY/actions"
+          if current=$(timeout 20s gh api "$actions/runs/$GITHUB_RUN_ID" --jq '[.workflow_id, .created_at] | @tsv') &&
+             read -r workflow started <<< "$current" &&
+             [[ $workflow =~ ^[1-9][0-9]*$ && -n $started ]] &&
+             history=$(timeout 20s gh api --method GET "$actions/workflows/$workflow/runs" \
+               -f branch=main -f event=schedule -f status=completed -f created="<$started" -F per_page=30) &&
+             previous=$(jq -er --argjson id "$GITHUB_RUN_ID" --argjson number "$GITHUB_RUN_NUMBER" \
+               --argjson workflow "$workflow" --arg started "$started" '
+               ($started | fromdateiso8601) as $start
+               | [.workflow_runs[] | select(
+                   (.id | numbers) != $id and (.run_number | numbers) < $number
+                   and .workflow_id == $workflow and .head_branch == "main"
+                   and .event == "schedule" and .status == "completed"
+                   and (.conclusion == "success" or .conclusion == "failure")
+                   and (.updated_at | fromdateiso8601) < $start
+                 )] | max_by(.run_number).head_sha // empty' <<< "$history") &&
+             [[ $previous =~ ^[0-9a-f]{40}$ && $previous == "$GITHUB_SHA" ]]; then
+            echo 'skip-nightly=true' >> "$GITHUB_OUTPUT"
+            echo 'The last completed nightly used the same commit.'
+          else
+            echo 'No confirmed same-commit nightly; run the full suite.'
+          fi
+
   rust:
     name: Rust
+    if: github.event_name != 'schedule'
     runs-on: macos-latest
 
-    steps:
+    steps: &rust-steps
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
@@ -65,3 +104,10 @@ jobs:
           restored=$(target/debug/issw current)
           test "$restored" = "$original"
           printf 'Switched to %s and restored %s\n' "$target_id" "$original_id"
+
+  nightly:
+    name: Nightly Rust
+    needs: nightly-preflight
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.nightly-preflight.outputs.skip-nightly != 'true' }}
+    runs-on: macos-latest
+    steps: *rust-steps
