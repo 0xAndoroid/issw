@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 jobs:
@@ -14,8 +19,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@nextest
       - run: cargo fmt -q --message-format=short --check
       - run: cargo clippy -q --message-format=short -- -D warnings
-      - run: cargo nextest run --cargo-quiet
+      - uses: taiki-e/install-action@nextest
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      - run: cargo nextest run --cargo-quiet --no-tests=fail
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       - run: cargo package --locked
+      - run: cargo build -q --message-format=short --locked
+        if: github.event_name == 'pull_request'
+      - name: Switch input sources with issw
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          original=$(target/debug/issw current)
+          original_id=${original%%$'\t'*}
+          target_id=com.apple.keylayout.Dvorak
+          test -n "$original_id"
+          test "$original_id" != "$target_id"
+
+          swift - "$target_id" <<'SWIFT'
+          import Carbon
+          import Foundation
+
+          let filter = [kTISPropertyInputSourceID as String: CommandLine.arguments[1]] as CFDictionary
+          let sources = TISCreateInputSourceList(filter, true).takeRetainedValue() as NSArray as! [TISInputSource]
+          precondition(sources.count == 1, "Expected exactly one installed Dvorak layout")
+          precondition(TISEnableInputSource(sources[0]) == noErr, "Could not enable Dvorak")
+          SWIFT
+
+          target=$(target/debug/issw list | awk -F '\t' -v id="$target_id" '$1 == id && length($2)')
+          test -n "$target"
+          target/debug/issw "$target_id"
+          test "$(target/debug/issw current)" = "$target"
+          target/debug/issw "$original_id"
+          test "$(target/debug/issw current)" = "$original"
+          printf 'Switched to %s and restored %s\n' "$target_id" "$original_id"
